@@ -143,6 +143,8 @@ static char *
 get_manufacturer(unsigned char mac0, unsigned char mac1, unsigned char mac2);
 int is_filtered_essid(const uint8_t * essid);
 
+bool log_handshake_flip;
+
 /* bunch of global stuff */
 struct communication_options opt;
 static struct local_options
@@ -283,6 +285,9 @@ static struct local_options
 	unsigned long min_pkts;
 
 	int relative_time; /* read PCAP in psuedo-real-time */
+
+	bool log_handshake_only; /* only save packets required for WPA cracking */
+
 } lopt;
 
 static void resetSelection(void)
@@ -1247,6 +1252,8 @@ static int dump_add_packet(unsigned char * h80211,
 	struct AP_info * ap_prv = NULL;
 	struct ST_info * st_prv = NULL;
 	struct NA_info * na_prv = NULL;
+
+	if (lopt.log_handshake_only == 1) log_handshake_flip = false;
 
 	/* skip all non probe response frames in active scanning simulation mode */
 	if (lopt.active_scan_sim > 0 && h80211[0] != 0x50) return (0);
@@ -2326,6 +2333,8 @@ skip_probe:
 	{
 		p = h80211 + 28;
 
+		if (lopt.log_handshake_only == 1) log_handshake_flip = 1;
+
 		while (p < h80211 + caplen)
 		{
 			if (p + 2 + p[1] > h80211 + caplen) break;
@@ -2663,6 +2672,8 @@ skip_probe:
 			&& (h80211[1] & 0x40) != 0x40)
 		{
 			ap_cur->EAP_detected = 1;
+
+			if (lopt.log_handshake_only == 1) log_handshake_flip = 1;
 
 			z += 2; // skip ethertype
 
@@ -3034,6 +3045,11 @@ write_packet:
 
 	if (opt.f_cap != NULL && caplen >= 10)
 	{
+		if (lopt.log_handshake_only == 1 && log_handshake_flip == 0)
+		{
+		  return (0);
+		}
+
 		pkh.len = pkh.caplen = (uint32_t) caplen;
 
 		gettimeofday(&tv, NULL);
@@ -5843,6 +5859,7 @@ int main(int argc, char * argv[])
 		   {"background", 1, 0, 'K'},
 		   {"min-packets", 1, 0, 'n'},
 		   {"real-time", 0, 0, 'T'},
+		   {"handshake_only", 0, 0, 'O'},
 		   {0, 0, 0, 0}};
 
 	pid_t main_pid = getpid();
@@ -6039,7 +6056,7 @@ int main(int argc, char * argv[])
 		option
 			= getopt_long(argc,
 						  argv,
-						  "b:c:egiw:s:t:u:m:d:N:R:aHDB:Ahf:r:EC:o:x:MUI:WK:n:T",
+						  "b:c:egiw:s:t:u:m:d:N:R:aHDB:Ahf:r:EC:o:x:MUI:WK:n:TO",
 						  long_options,
 						  &option_index);
 
@@ -6565,6 +6582,20 @@ int main(int argc, char * argv[])
 #else
 				lopt.htval = CHANNEL_HT40_PLUS;
 #endif
+				break;
+
+			case 'O':
+				// Only log handshakes
+				opt.output_format_pcap = 1;
+				lopt.log_handshake_only = 1;
+
+				opt.output_format_csv = 0;
+				opt.output_format_kismet_csv = 0;
+				opt.output_format_kismet_netxml = 0;
+				opt.output_format_log_csv = 0;
+				opt.usegpsd = 0;
+				ivs_only = 0;
+
 				break;
 
 			default:
